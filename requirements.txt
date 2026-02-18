@@ -1,0 +1,7 @@
+tinkoff-investments @ git+https://github.com/RussianInvestments/invest-python.git@0.2.0-beta97
+pydantic==2.12.5
+pydantic-settings==2.13.0
+pandas==2.3.3
+ta==0.11.0
+backtesting==0.6.5
+bokeh==3.8.2

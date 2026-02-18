@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+market_data_cache/
+reports/
+stats.db
+.idea/
+.vscode/
