@@ -1,12 +1,48 @@
 param(
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $false)]
     [string]$Token,
     [string]$PythonVersion = "3.11",
     [switch]$Run
 )
 
 $ErrorActionPreference = "Stop"
+Set-StrictMode -Version Latest
 Set-Location $PSScriptRoot
+
+function Invoke-External {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Executable,
+        [Parameter(Mandatory = $false)]
+        [string[]]$Arguments = @(),
+        [Parameter(Mandatory = $true)]
+        [string]$StepName
+    )
+
+    & $Executable @Arguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "$StepName failed (exit code $LASTEXITCODE)."
+    }
+}
+
+function Clear-NetworkEnv {
+    $vars = @(
+        "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY",
+        "http_proxy", "https_proxy", "all_proxy",
+        "GIT_HTTP_PROXY", "GIT_HTTPS_PROXY",
+        "PIP_NO_INDEX", "PIP_INDEX_URL", "PIP_EXTRA_INDEX_URL"
+    )
+    foreach ($name in $vars) {
+        Remove-Item -Path ("Env:{0}" -f $name) -ErrorAction SilentlyContinue
+    }
+}
+
+if ([string]::IsNullOrWhiteSpace($Token)) {
+    $Token = Read-Host "Enter T-Invest API token (starts with t.)"
+}
+if ([string]::IsNullOrWhiteSpace($Token)) {
+    throw "Token is empty. Run again with -Token."
+}
 
 if (-not (Get-Command py -ErrorAction SilentlyContinue)) {
     throw "Python launcher 'py' not found. Install Python 3.11+ first."
@@ -14,7 +50,7 @@ if (-not (Get-Command py -ErrorAction SilentlyContinue)) {
 
 $pyArgs = @("-$PythonVersion")
 try {
-    py @pyArgs --version | Out-Null
+    Invoke-External -Executable "py" -Arguments ($pyArgs + @("--version")) -StepName "Validate Python $PythonVersion"
 }
 catch {
     Write-Host "Python $PythonVersion not found, using default 'py'."
@@ -22,13 +58,23 @@ catch {
 }
 
 if (-not (Test-Path ".venv\\Scripts\\python.exe")) {
-    py @pyArgs -m venv .venv
+    Invoke-External -Executable "py" -Arguments ($pyArgs + @("-m", "venv", ".venv")) -StepName "Create virtual environment"
 }
 
 $pythonExe = Join-Path $PSScriptRoot ".venv\\Scripts\\python.exe"
 
-& $pythonExe -m pip install --upgrade pip
-& $pythonExe -m pip install -r requirements.txt
+Clear-NetworkEnv
+Invoke-External -Executable $pythonExe -Arguments @(
+    "-m", "pip", "install", "--upgrade",
+    "--index-url", "https://pypi.org/simple",
+    "pip", "setuptools", "wheel"
+) -StepName "Upgrade pip tooling"
+Invoke-External -Executable $pythonExe -Arguments @(
+    "-m", "pip", "install",
+    "--index-url", "https://pypi.org/simple",
+    "-r", "requirements.txt"
+) -StepName "Install project dependencies"
+Invoke-External -Executable $pythonExe -Arguments @("-c", "import tinkoff.invest") -StepName "Validate tinkoff SDK import"
 
 if (-not (Test-Path ".env")) {
     Copy-Item ".env.template" ".env"
@@ -37,12 +83,7 @@ if (-not (Test-Path ".env")) {
 $env:SETUP_TOKEN = $Token
 $env:PYTHONPATH = "."
 $env:PYTHONDONTWRITEBYTECODE = "1"
-$env:HTTP_PROXY = ""
-$env:HTTPS_PROXY = ""
-$env:http_proxy = ""
-$env:https_proxy = ""
-$env:ALL_PROXY = ""
-$env:all_proxy = ""
+Clear-NetworkEnv
 
 @'
 import os
@@ -70,6 +111,9 @@ env_path.write_text(
 
 print(account_id)
 '@ | & $pythonExe -
+if ($LASTEXITCODE -ne 0) {
+    throw "Sandbox account bootstrap failed."
+}
 
 Write-Host ""
 Write-Host "Setup complete."
