@@ -10,7 +10,7 @@
           "quantity_limit": 10,
           "check_data": 60,
           "ema_fast_window": 20,
-          "ema_slow_window": 45
+          "ema_slow_window": 50
         }
       }
     }

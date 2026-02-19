@@ -29,36 +29,43 @@ Do not wrap token with `< >`.
 
 Stop: `Ctrl+C`.
 
-## Backtest + EMA sweep + chart + run sandbox
+## Manual Backtest + Leaderboard + Run Sandbox
 
-One command:
+Run with manual params (space-separated):
 
 ```powershell
-.\run_backtest_and_sandbox.ps1
+.\run_backtest_manual.ps1 20 50 20 2.0 60 -Name dima
 ```
 
-What it does:
-- loads 2 years of candles (`--days-back 730`);
-- sweeps EMA short/long ranges;
-- picks the best EMA pair by CAGR (with drawdown and trade count tie-breakers);
-- builds chart with price + buy/sell entry/exit points;
-- saves metrics:
-  - max drawdown;
-  - number of trades;
-  - average annual return (CAGR);
-- writes selected EMA params into `instruments_config_scalpel.json`;
-- opens chart automatically after backtest;
-- starts sandbox bot with selected EMA.
+Params order:
+- `ema_fast` in `8..30`
+- `ema_slow` in `35..120` and `ema_fast < ema_slow`
+- `bb_window` in `10..40`
+- `bb_dev` in `1.0..3.5` (step `0.25`)
+- `timeframe_min` in `5, 15, 30, 60, 120, 240, 720, 1440`
 
 Artifacts are saved into `reports/`:
 - `reports/scalpel_backtest_plot.png`
-- `reports/ema_grid_results.csv`
-- `reports/best_trades.csv`
-- `reports/backtest_summary.json`
+- `reports/leaderboard.csv`
+- `reports/trades_<name>_<run_id>.csv`
+- `reports/summary_<name>_<run_id>.json`
+
+The script:
+- runs backtest for last 3 years (`1095` days);
+- shows entry/exit points on chart;
+- prints your leaderboard place in terminal;
+- updates local leaderboard table;
+- writes selected EMA params into `instruments_config_scalpel.json`;
+- starts sandbox bot.
+
+GitHub leaderboard publish:
+- requires GitHub PAT (without auth GitHub cannot be updated);
+- pass token as `-GitHubToken "<PAT>"` or set env `GITHUB_TOKEN`;
+- target file by default: `DmitriiOrel/winter_school_project` -> `reports/leaderboard.csv`.
 
 Useful flags:
-- `-SkipSandboxRun` - run only backtest/sweep/report.
-- `-SkipReportOpen` - do not auto-open chart window.
+- `-NoSandboxRun` - run only backtest + leaderboard.
+- `-NoChartOpen` - do not auto-open chart window.
 
 ## If script execution is blocked
 
