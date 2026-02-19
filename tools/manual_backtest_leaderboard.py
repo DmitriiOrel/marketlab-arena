@@ -405,14 +405,20 @@ def ensure_leaderboard_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 def rank_leaderboard(df: pd.DataFrame) -> pd.DataFrame:
     out = ensure_leaderboard_columns(df)
+    out["name"] = out["name"].astype(str).str.strip()
+    out["name_norm"] = out["name"].str.lower()
     out["annual_return_pct"] = pd.to_numeric(out["annual_return_pct"], errors="coerce").fillna(-10_000.0)
     out["max_drawdown_pct"] = pd.to_numeric(out["max_drawdown_pct"], errors="coerce").fillna(-10_000.0)
     out["trades"] = pd.to_numeric(out["trades"], errors="coerce").fillna(0).astype(int)
+    out["timestamp_utc"] = out["timestamp_utc"].astype(str)
     out.sort_values(
-        by=["annual_return_pct", "max_drawdown_pct", "trades"],
-        ascending=[False, False, False],
+        by=["annual_return_pct", "max_drawdown_pct", "trades", "timestamp_utc"],
+        ascending=[False, False, False, False],
         inplace=True,
     )
+    # Best-only mode: keep one best row per participant name.
+    out = out.drop_duplicates(subset=["name_norm"], keep="first")
+    out.drop(columns=["name_norm"], inplace=True)
     out.reset_index(drop=True, inplace=True)
     out["place"] = out.index + 1
     return out[LEADERBOARD_COLUMNS]
@@ -717,7 +723,10 @@ def main() -> None:
     # Keep a local mirror for convenience, but source of truth is GitHub.
     save_local_leaderboard(ranked, args.leaderboard_path)
 
+    current_run_kept = not ranked[ranked["run_id"] == run_id].empty
     my_row = ranked[ranked["run_id"] == run_id]
+    if my_row.empty:
+        my_row = ranked[ranked["name"].astype(str).str.lower() == safe_name.lower()].head(1)
     my_place = int(my_row.iloc[0]["place"]) if not my_row.empty else -1
 
     if args.write_live_config:
@@ -731,6 +740,7 @@ def main() -> None:
     print(f"Total return: {summary['total_return_pct']:.2f}%")
     print(f"Max drawdown: {summary['max_drawdown_pct']:.2f}%")
     print(f"Trades: {summary['trades']}")
+    print(f"Current run kept in leaderboard: {'yes' if current_run_kept else 'no (older best kept)'}")
     print(f"Your leaderboard place: {my_place}")
     print(f"Latest plot: {latest_plot}")
     print(f"Leaderboard file: {args.leaderboard_path}")

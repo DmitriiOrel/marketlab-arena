@@ -71,6 +71,7 @@ The script:
 - prints your leaderboard place in terminal;
 - updates leaderboard on GitHub (required);
 - updates leaderboard section in `README.md` on GitHub;
+- keeps only one best result per participant name (`-Name`);
 - writes selected EMA params into `instruments_config_scalpel.json`;
 - starts sandbox bot.
 
