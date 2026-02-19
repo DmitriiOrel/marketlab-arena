@@ -32,6 +32,15 @@ cd .\winter_school_project
 powershell -ExecutionPolicy Bypass -File .\quickstart.ps1 -Token "t.<YOUR_API_TOKEN>" -Run
 ```
 
+## Если видите ошибку `No matching distribution found for tinkoff<0.2.0`
+
+Это означает, что у вас старая версия репозитория. Обновите проект и запустите quickstart снова:
+
+```powershell
+git pull
+.\quickstart.ps1 -Token "t.<YOUR_API_TOKEN>" -Run
+```
+
 ## Что настраивается руками
 
 Только API-токен.
