@@ -4,11 +4,12 @@ import io
 import json
 import os
 import re
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
@@ -70,6 +71,9 @@ LEADERBOARD_COLUMNS = [
 ]
 README_LB_START = "<!-- LEADERBOARD:START -->"
 README_LB_END = "<!-- LEADERBOARD:END -->"
+GITHUB_TIMEOUT_SEC = 90
+GITHUB_MAX_RETRIES = 5
+GITHUB_RETRY_BASE_SEC = 2.0
 
 
 @dataclass
@@ -442,6 +446,48 @@ def save_local_leaderboard(df: pd.DataFrame, path: Path) -> None:
     path.write_text(json.dumps(records, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+def _should_retry_http(code: int) -> bool:
+    return code in {408, 409, 423, 425, 429, 500, 502, 503, 504}
+
+
+def github_api_request(
+    url: str,
+    method: str,
+    headers: dict,
+    data: Optional[bytes] = None,
+    timeout: int = GITHUB_TIMEOUT_SEC,
+) -> bytes:
+    last_error: Optional[Exception] = None
+    for attempt in range(1, GITHUB_MAX_RETRIES + 1):
+        req = Request(url, headers=headers, data=data, method=method)
+        try:
+            with urlopen(req, timeout=timeout) as resp:
+                return resp.read()
+        except HTTPError as ex:
+            last_error = ex
+            if attempt < GITHUB_MAX_RETRIES and _should_retry_http(ex.code):
+                sleep_s = GITHUB_RETRY_BASE_SEC * attempt
+                print(
+                    f"[GitHub] HTTP {ex.code}, retry {attempt}/{GITHUB_MAX_RETRIES} in {sleep_s:.1f}s",
+                    flush=True,
+                )
+                time.sleep(sleep_s)
+                continue
+            raise
+        except (URLError, TimeoutError) as ex:
+            last_error = ex
+            if attempt < GITHUB_MAX_RETRIES:
+                sleep_s = GITHUB_RETRY_BASE_SEC * attempt
+                print(
+                    f"[GitHub] Network error, retry {attempt}/{GITHUB_MAX_RETRIES} in {sleep_s:.1f}s: {ex}",
+                    flush=True,
+                )
+                time.sleep(sleep_s)
+                continue
+            raise
+    raise RuntimeError(f"GitHub request failed: {last_error}")
+
+
 def fetch_remote_file_bytes(owner: str, repo: str, path: str, branch: str, token: str) -> tuple[bytes, Optional[str]]:
     url = f"https://api.github.com/repos/{owner}/{repo}/contents/{quote(path)}?ref={quote(branch)}"
     headers = {
@@ -450,10 +496,8 @@ def fetch_remote_file_bytes(owner: str, repo: str, path: str, branch: str, token
         "X-GitHub-Api-Version": "2022-11-28",
         "User-Agent": "winter-school-backtest-script",
     }
-    req = Request(url, headers=headers, method="GET")
     try:
-        with urlopen(req, timeout=30) as resp:
-            payload = json.loads(resp.read().decode("utf-8"))
+        payload = json.loads(github_api_request(url=url, method="GET", headers=headers).decode("utf-8"))
     except HTTPError as e:
         if e.code == 404:
             return b"", None
@@ -506,9 +550,7 @@ def push_remote_bytes_file(
         "User-Agent": "winter-school-backtest-script",
         "Content-Type": "application/json",
     }
-    req = Request(url, data=json.dumps(body).encode("utf-8"), headers=headers, method="PUT")
-    with urlopen(req, timeout=30):
-        pass
+    github_api_request(url=url, method="PUT", headers=headers, data=json.dumps(body).encode("utf-8"))
 
 
 def push_remote_text_file(
@@ -561,9 +603,7 @@ def delete_remote_file(owner: str, repo: str, path: str, branch: str, token: str
         "User-Agent": "winter-school-backtest-script",
         "Content-Type": "application/json",
     }
-    req = Request(url, data=json.dumps(body).encode("utf-8"), headers=headers, method="DELETE")
-    with urlopen(req, timeout=30):
-        pass
+    github_api_request(url=url, method="DELETE", headers=headers, data=json.dumps(body).encode("utf-8"))
 
 
 def load_trials_index(payload_text: str) -> list[dict]:
@@ -591,7 +631,6 @@ def sort_trials_index(rows: list[dict]) -> list[dict]:
 
 
 def push_local_file_to_github(owner: str, repo: str, branch: str, token: str, remote_path: str, local_path: Path, message: str) -> None:
-    _, current_sha = fetch_remote_file_bytes(owner=owner, repo=repo, path=remote_path, branch=branch, token=token)
     push_remote_bytes_file(
         owner=owner,
         repo=repo,
@@ -599,7 +638,7 @@ def push_local_file_to_github(owner: str, repo: str, branch: str, token: str, re
         branch=branch,
         token=token,
         content=local_path.read_bytes(),
-        sha=current_sha,
+        sha=None,
         message=message,
     )
 
