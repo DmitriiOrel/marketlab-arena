@@ -43,6 +43,22 @@ if ([string]::IsNullOrWhiteSpace($Token)) {
 if ([string]::IsNullOrWhiteSpace($Token)) {
     throw "Token is empty. Run again with -Token."
 }
+$Token = $Token.Trim()
+if ($Token.StartsWith("<") -and $Token.EndsWith(">")) {
+    $Token = $Token.Substring(1, $Token.Length - 2).Trim()
+}
+if ($Token.StartsWith("t.<") -and $Token.EndsWith(">")) {
+    $inner = $Token.Substring(3, $Token.Length - 4).Trim()
+    if ($inner.StartsWith("t.")) {
+        $Token = $inner
+    }
+    else {
+        $Token = "t.$inner"
+    }
+}
+if (-not $Token.StartsWith("t.")) {
+    throw "Token format looks invalid. Use raw token like t.xxxxx (without < >)."
+}
 
 if (-not (Get-Command py -ErrorAction SilentlyContinue)) {
     throw "Python launcher 'py' not found. Install Python 3.11+ first."
